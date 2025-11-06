@@ -48,21 +48,30 @@ help: ## 显示帮助信息
 # 安装和配置
 # ============================================================================
 setup: ## 全新部署（配置环境 + 构建镜像 + 启动服务）
-	@echo "$(BLUE)[INFO]$(NC) 开始全新部署..."
-	@if [ ! -f .env ]; then \
-		if [ -f .env.example ]; then \
-			cp .env.example .env; \
-			echo "$(GREEN)[OK]$(NC) .env 文件已创建"; \
-			echo "$(YELLOW)[WARNING]$(NC) 请编辑 .env 文件，特别是 JWT_SECRET_KEY"; \
-		else \
-			echo "$(RED)[ERROR]$(NC) .env.example 文件不存在"; \
-			exit 1; \
-		fi; \
-	else \
-		echo "$(GREEN)[OK]$(NC) .env 文件已存在"; \
-	fi
-	@mkdir -p models data/uploads data/output data/db logs/backend logs/worker logs/mcp
-	@echo "$(GREEN)[OK]$(NC) 目录结构创建完成"
+	@echo [INFO] 开始全新部署...
+	@if not exist .env ( \
+		@echo [INFO] 创建 .env 文件... && \
+		copy .env.example .env >nul 2>&1 && \
+		@echo [OK] .env 文件已创建 && \
+		@echo [WARNING] 请编辑 .env 文件，特别是 JWT_SECRET_KEY \
+	) else ( \
+		@echo [OK] .env 文件已存在 \
+	)
+	@if not exist models ( \
+		@echo [INFO] 创建目录结构... && \
+		mkdir models 2>nul && \
+		mkdir data 2>nul && \
+		mkdir "data\uploads" 2>nul && \
+		mkdir "data\output" 2>nul && \
+		mkdir "data\db" 2>nul && \
+		mkdir logs 2>nul && \
+		mkdir "logs\backend" 2>nul && \
+		mkdir "logs\worker" 2>nul && \
+		mkdir "logs\mcp" 2>nul && \
+		@echo [OK] 目录结构创建完成 \
+	) else ( \
+		@echo [OK] 目录结构已存在 \
+	)
 	@$(MAKE) build
 	@$(MAKE) start
 	@$(MAKE) info

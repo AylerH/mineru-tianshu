@@ -9,7 +9,7 @@
 # ============================================================================
 # Stage 1: Base Image with CUDA Support
 # ============================================================================
-FROM nvidia/cuda:12.6.2-cudnn-runtime-ubuntu24.04 AS base
+FROM m.daocloud.io/docker.io/nvidia/cuda:12.6.2-cudnn-runtime-ubuntu24.04 AS base
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -21,34 +21,70 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/local/cuda/bin:$PATH \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-dev \
-    python3-pip \
-    python3.12-venv \
-    git \
-    wget \
-    curl \
-    libgomp1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgl1 \
-    libgstreamer1.0-0 \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# 更新软件包索引并安装证书，同时配置USTC镜像源作为备用
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get update && \
+    apt-get install -y apt-transport-https ca-certificates || true
 
-# 创建符号链接，让 python3 指向 python3.12
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+# 尝试使用USTC镜像源，如果失败则回退到官方源
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release) main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release)-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian-security/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release)-security main contrib non-free" >> /etc/apt/sources.list || \
+    (echo "Failed to configure USTC mirror, using default sources" && \
+     echo "deb http://archive.ubuntu.com/ubuntu/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release) main restricted universe multiverse" > /etc/apt/sources.list && \
+     echo "deb http://archive.ubuntu.com/ubuntu/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release)-updates main restricted universe multiverse" >> /etc/apt/sources.list && \
+     echo "deb http://archive.ubuntu.com/ubuntu/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release)-security main restricted universe multiverse" >> /etc/apt/sources.list)
+
+# 更新软件包索引
+RUN apt-get update || (echo "Retrying with default sources..." && \
+    echo "deb http://archive.ubuntu.com/ubuntu/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release) main restricted universe multiverse" > /etc/apt/sources.list && \
+    echo "deb http://archive.ubuntu.com/ubuntu/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release)-updates main restricted universe multiverse" >> /etc/apt/sources.list && \
+    echo "deb http://archive.ubuntu.com/ubuntu/ $(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release)-security main restricted universe multiverse" >> /etc/apt/sources.list && \
+    apt-get update)
+
+# 分批安装系统依赖以避免超时（减少一次性安装的包数量）
+RUN apt-get install -y --no-install-recommends \
+        python3 \
+        python3-dev \
+        python3-pip \
+        python3-venv \
+        && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        wget \
+        curl \
+        && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libgomp1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender-dev \
+        libgl1 \
+        && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libgstreamer1.0-0 \
+        ffmpeg \
+        && rm -rf /var/lib/apt/lists/*
+
+# 确保 python3 指向正确的版本
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# 创建虚拟环境并激活
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # 升级 pip（使用国内镜像源，增加超时时间）
-RUN python3 -m pip install --upgrade pip setuptools wheel \
+# 在虚拟环境中升级包，避免系统包管理冲突
+RUN pip install --upgrade pip setuptools wheel \
     -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    --break-system-packages \
-    --ignore-installed \
     --default-timeout=300
 
 # ============================================================================
