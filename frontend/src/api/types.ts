@@ -43,6 +43,12 @@ export interface RegisterRequest {
   role?: UserRole
 }
 
+// 修改密码请求
+export interface PasswordChangeRequest {
+  old_password: string
+  new_password: string
+}
+
 // API Key 创建请求
 export interface APIKeyCreate {
   name: string
@@ -89,6 +95,7 @@ export type Backend =
   | 'vlm-transformers'
   | 'vlm-vllm-engine'
   | 'paddleocr-vl'
+  | 'paddleocr-vl-vllm'
   | 'sensevoice'
   | 'video'
   | 'fasta'  // FASTA 生物序列格式

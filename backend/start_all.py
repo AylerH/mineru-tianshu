@@ -3,9 +3,9 @@
 MinerU Tianshu - 启动所有服务
 
 1. API Server (FastAPI) - 端口 8000
-2. LitServe Worker Pool - 端口 9000
+2. LitServe Worker Pool - 端口 8001
 3. Task Scheduler (可选) - 后台任务调度
-4. MCP Server (可选) - 端口 8001
+4. MCP Server (可选) - 端口 8002
 
 自动检查并下载 OCR 模型（PaddleOCR-VL）
 支持 GPU 加速、任务队列、优先级管理
@@ -19,6 +19,7 @@ import os
 from loguru import logger
 from pathlib import Path
 import argparse
+from utils import parse_list_arg
 
 
 class TianshuLauncher:
@@ -28,12 +29,14 @@ class TianshuLauncher:
         self,
         output_dir="/tmp/mineru_tianshu_output",
         api_port=8000,
-        worker_port=9000,
+        worker_port=8001,
         workers_per_device=1,
         devices="auto",
         accelerator="auto",
         enable_mcp=False,
-        mcp_port=8001,
+        mcp_port=8002,
+        paddleocr_vl_vllm_engine_enabled=False,  # 新增paddle ocr vllm engine 配置
+        paddleocr_vl_vllm_api_list=[],  # 新增paddle ocr vllm engine 配置
     ):
         self.output_dir = output_dir
         self.api_port = api_port
@@ -44,6 +47,8 @@ class TianshuLauncher:
         self.enable_mcp = enable_mcp
         self.mcp_port = mcp_port
         self.processes = []
+        self.paddleocr_vl_vllm_engine_enabled = paddleocr_vl_vllm_engine_enabled
+        self.paddleocr_vl_vllm_api_list = paddleocr_vl_vllm_api_list
 
     def check_ocr_models(self):
         """检查并下载所有 OCR 模型（异步，不阻塞启动）"""
@@ -101,6 +106,7 @@ class TianshuLauncher:
             logger.info(f"📡 [1/{total_services}] Starting API Server...")
             env = os.environ.copy()
             env["API_PORT"] = str(self.api_port)
+            env["OUTPUT_PATH"] = self.output_dir  # 设置输出目录（与 Worker 保持一致）
             api_proc = subprocess.Popen([sys.executable, "api_server.py"], cwd=Path(__file__).parent, env=env)
             self.processes.append(("API Server", api_proc))
             time.sleep(3)
@@ -115,6 +121,10 @@ class TianshuLauncher:
 
             # 2. 启动 LitServe Worker Pool
             logger.info(f"⚙️  [2/{total_services}] Starting LitServe Worker Pool...")
+            worker_env = os.environ.copy()
+            worker_env["WORKER_PORT"] = str(self.worker_port)
+            worker_env["OUTPUT_PATH"] = self.output_dir
+
             worker_cmd = [
                 sys.executable,
                 "litserve_worker.py",
@@ -130,7 +140,13 @@ class TianshuLauncher:
                 str(self.devices) if isinstance(self.devices, str) else ",".join(map(str, self.devices)),
             ]
 
-            worker_proc = subprocess.Popen(worker_cmd, cwd=Path(__file__).parent)
+            # 只在启用时才添加 paddleocr-vl-vllm-engine-enabled 参数
+            if self.paddleocr_vl_vllm_engine_enabled:
+                worker_cmd.extend(["--paddleocr-vl-vllm-engine-enabled"])
+            # 添加 paddleocr-vl-vllm-api-list 参数
+            worker_cmd.extend(["--paddleocr-vl-vllm-api-list", str(self.paddleocr_vl_vllm_api_list)])
+
+            worker_proc = subprocess.Popen(worker_cmd, cwd=Path(__file__).parent, env=worker_env)
             self.processes.append(("LitServe Workers", worker_proc))
             time.sleep(5)
 
@@ -288,7 +304,7 @@ def main():
   python start_all.py --accelerator cuda --devices 0,1
 
   # 启用 MCP Server 支持（用于 AI 助手调用）
-  python start_all.py --enable-mcp --mcp-port 8001
+  python start_all.py --enable-mcp --mcp-port 8002
         """,
     )
 
@@ -299,12 +315,12 @@ def main():
         help="输出目录 (默认: /tmp/mineru_tianshu_output)",
     )
     parser.add_argument("--api-port", type=int, default=8000, help="API服务器端口 (默认: 8000)")
-    parser.add_argument("--worker-port", type=int, default=9000, help="Worker服务器端口 (默认: 9000)")
+    parser.add_argument("--worker-port", type=int, default=8001, help="Worker服务器端口 (默认: 8001)")
     parser.add_argument(
         "--accelerator",
         type=str,
         default="auto",
-        choices=["auto", "cuda", "cpu", "mps"],
+        choices=["auto", "cuda", "cpu"],
         help="加速器类型 (默认: auto，自动检测)",
     )
     parser.add_argument("--workers-per-device", type=int, default=1, help="每个GPU的worker数量 (默认: 1)")
@@ -312,7 +328,20 @@ def main():
     parser.add_argument(
         "--enable-mcp", action="store_true", help="启用 MCP Server（支持 Model Context Protocol 远程调用）"
     )
-    parser.add_argument("--mcp-port", type=int, default=8001, help="MCP Server 端口 (默认: 8001)")
+    parser.add_argument("--mcp-port", type=int, default=8002, help="MCP Server 端口 (默认: 8002)")
+    # 配置 paddleocr-vl-vllm engine
+    parser.add_argument(
+        "--paddleocr-vl-vllm-engine-enabled",
+        action="store_true",
+        default=False,
+        help="是否启用 PaddleOCR VL VLLM 引擎 (默认: False)",
+    )
+    parser.add_argument(
+        "--paddleocr-vl-vllm-api-list",
+        type=parse_list_arg,
+        default=[],
+        help='PaddleOCR VL VLLM API 列表（Python list 字面量格式，如: \'["http://0.0.0.0:17300/v1", "http://0.0.0.0:17301/v1"]\'）',
+    )
 
     args = parser.parse_args()
 
@@ -324,7 +353,17 @@ def main():
         except ValueError:
             logger.warning(f"Invalid devices format: {devices}, using 'auto'")
             devices = "auto"
-
+    if args.paddleocr_vl_vllm_engine_enabled:
+        logger.success("start_all 脚本中 PaddleOCR VL VLLM 引擎已设置启用")
+        if not args.paddleocr_vl_vllm_api_list:
+            logger.error(
+                "请配置 --paddleocr-vl-vllm-api-list 参数, 或者移除 --paddleocr-vl-vllm-engine-enabled 来关闭 PaddleOCR VL VLLM 引擎"
+            )
+            sys.exit(1)
+        else:
+            logger.success(f"PaddleOCR VL VLLM 引擎，API 列表为: {args.paddleocr_vl_vllm_api_list}")
+    else:
+        logger.info("start_all 脚本中PaddleOCR VL VLLM 引擎已设置不启用")
     # 创建启动器
     launcher = TianshuLauncher(
         output_dir=args.output_dir,
@@ -335,6 +374,8 @@ def main():
         accelerator=args.accelerator,
         enable_mcp=args.enable_mcp,
         mcp_port=args.mcp_port,
+        paddleocr_vl_vllm_engine_enabled=args.paddleocr_vl_vllm_engine_enabled,
+        paddleocr_vl_vllm_api_list=args.paddleocr_vl_vllm_api_list,
     )
 
     # 设置信号处理

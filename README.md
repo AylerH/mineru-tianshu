@@ -46,6 +46,25 @@
 
 ## 📝 最新更新
 
+### 2025-12-05 🗄️ RustFS 对象存储集成
+
+- ✅ **RustFS 对象存储**：所有解析结果的图片自动上传到对象存储
+  - S3 兼容 API，基于 minio-py 实现
+  - 批量上传图片，自动生成公开访问 URL
+  - 短且唯一的文件名生成（时间戳 Base62 + NanoID）
+  - 按日期自动分组（YYYYMMDD/文件名.ext）
+  - Markdown/JSON 中的图片路径自动替换为对象存储 URL
+  - Docker Compose 一键部署 RustFS 服务
+  - 需配置 `RUSTFS_PUBLIC_URL` 环境变量（外部可访问地址）
+- ✅ **输出标准化优化**：改进图片路径处理，统一使用对象存储 URL
+- ✅ **配置简化**：精简 `.env.example` 配置文件，移除冗余选项
+
+### 2025-11-12 📦 代码优化与文档整理
+
+- ✅ **输出标准化**：统一 Markdown/JSON 输出格式，优化图片路径处理
+- ✅ **文档精简**：精简 README 文档，移除冗余说明文件，保持项目整洁
+- ✅ **代码质量**：优化错误处理，改进日志输出，提升系统稳定性
+
 ### 2025-10-30 🐳 Docker 部署 + 企业级认证系统
 
 - ✅ **Docker 容器化部署支持**
@@ -147,60 +166,14 @@
 
 ## 🌟 项目简介
 
-MinerU Tianshu（天枢）是一个**企业级 AI 数据预处理平台**，将各种非结构化数据转换为 AI 可用的结构化格式：
+MinerU Tianshu（天枢）是一个**企业级 AI 数据预处理平台**，将非结构化数据转换为 AI 可用的结构化格式：
 
-- **📄 文档处理**: PDF、Word、Excel、PPT → Markdown/JSON
-  - MinerU Pipeline（完整解析）、PaddleOCR-VL（109+ 语言）
-  - **🧪 水印去除（实验性）**：YOLO11x + LaMa 智能检测与去除
-
-- **🎬 视频处理**: MP4、AVI、MKV、MOV → 语音转写 + 关键帧 OCR
-  - 视频音频提取（FFmpeg）+ 语音识别（SenseVoice）
-  - **🧪 关键帧 OCR（实验性）**：场景检测 + 质量过滤 + 图像去重 + OCR 识别
-  - 支持多语言、说话人识别、情感识别
-
-- **🎙️ 音频处理**: MP3、WAV、M4A → 文字转写 + 说话人识别
-  - SenseVoice 引擎，支持多语言、情感识别、事件检测
-
-- **🖼️ 图片处理**: JPG、PNG → 文字提取 + 结构化
-  - 多种 OCR 引擎可选，GPU 加速
-  - **🧪 水印去除预处理（实验性）**：智能检测水印并自动去除
-
-- **🧬 生物信息学格式**: FASTA、GenBank → Markdown/JSON
-  - 插件化格式引擎架构，易于扩展新格式
-  - 序列统计、碱基组成分析、特征注释提取
-  - 专为 RAG 应用设计的结构化输出
-
-- **🏗️ 企业级特性**:
-  - GPU 负载均衡、任务队列、优先级管理、自动重试
-  - MCP 协议支持，可被 AI 助手（Claude Desktop 等）直接调用
-  - 现代化 Web 界面，易于管理和监控
-
-## ✨ 核心亮点
-
-<table>
-  <tr>
-    <td align="center" width="25%">
-      <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Desktop%20Computer.png" width="60"/><br/>
-      <strong>现代化界面</strong><br/>
-      <sub>Vue 3 + TypeScript + TailwindCSS</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Electric%20Plug.png" width="60"/><br/>
-      <strong>GPU 加速</strong><br/>
-      <sub>LitServe 负载均衡 + 多GPU隔离</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Memo.png" width="60"/><br/>
-      <strong>多模态处理</strong><br/>
-      <sub>文档/图片/音频 → 结构化数据</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Link.png" width="60"/><br/>
-      <strong>MCP 协议</strong><br/>
-      <sub>AI 助手无缝集成</sub>
-    </td>
-  </tr>
-</table>
+- **📄 文档**: PDF、Word、Excel、PPT → Markdown/JSON（MinerU、PaddleOCR-VL 109+ 语言、水印去除🧪）
+- **🎬 视频**: MP4、AVI、MKV → 语音转写 + 关键帧 OCR🧪（FFmpeg + SenseVoice）
+- **🎙️ 音频**: MP3、WAV、M4A → 文字转写 + 说话人识别（SenseVoice 多语言）
+- **🖼️ 图片**: JPG、PNG → 文字提取 + 结构化（多 OCR 引擎 + 水印去除🧪）
+- **🧬 生物格式**: FASTA、GenBank → Markdown/JSON（插件化引擎，易扩展）
+- **🏗️ 企业特性**: GPU 负载均衡、任务队列、JWT 认证、MCP 协议、现代化 Web 界面
 
 ## 📸 功能展示
 
@@ -232,584 +205,226 @@ MinerU Tianshu（天枢）是一个**企业级 AI 数据预处理平台**，将�
 
 ### 主要功能
 
-- ✅ **用户认证**: 基于 JWT 的安全认证，角色权限控制
-- ✅ **仪表盘**: 实时监控队列统计和最近任务
-- ✅ **任务提交**: 文件拖拽上传,支持批量处理和高级配置
-- ✅ **任务详情**: 实时状态追踪,Markdown/JSON 预览,自动轮询更新
-- ✅ **任务列表**: 筛选、搜索、分页、批量操作
-- ✅ **队列管理**: 系统监控,重置超时任务,清理旧文件
-- ✅ **用户管理**: 管理员控制台，用户管理，API 密钥生成
-- ✅ **MCP 协议支持**: 通过 Model Context Protocol 支持 AI 助手调用
-- ✅ **Docker 支持**: 一键部署，完整容器化方案
+- ✅ **用户认证**: JWT 认证、角色权限、API Key 管理
+- ✅ **任务管理**: 拖拽上传、批量处理、实时追踪、Markdown/JSON 预览
+- ✅ **队列管理**: 系统监控、超时重置、文件清理
+- ✅ **MCP 协议**: AI 助手（Claude Desktop）无缝集成
+- ✅ **Docker 部署**: 一键部署、GPU 支持、完整容器化
 
 ### 支持的文件格式
 
-- 📄 **PDF 和图片** - 支持两种 GPU 加速引擎
-  - **MinerU**: 完整文档解析，支持表格、公式识别
-  - **PaddleOCR-VL**: 多语言 OCR（109+ 语言），自动方向矫正和版面分析
-- 📊 **Office 文档** - Word、Excel、PowerPoint（使用 MarkItDown）
-- 🌐 **网页和文本** - HTML、Markdown、TXT、CSV 等
-- 🎙️ **音频文件** - MP3、WAV、M4A、FLAC 等（使用 SenseVoice）
-  - 多语言识别（中文/英文/日文/韩文/粤语）
-  - 说话人识别和分离
-  - 情感识别（中性/开心/生气/悲伤）
-  - 输出 JSON 和 Markdown 格式
-- 🧬 **生物信息学格式** - FASTA、GenBank（使用插件化格式引擎）
-  - **FASTA**: DNA/RNA/蛋白质序列解析
-  - **GenBank**: NCBI 基因序列注释格式
-  - 序列统计、碱基组成分析、GC 含量计算
-  - 支持 BioPython 或内置解析器
-  - 输出 Markdown 和 JSON 格式
+- 📄 **文档**: PDF、Word、Excel、PPT（MinerU、PaddleOCR-VL、MarkItDown）
+- 🖼️ **图片**: JPG、PNG、BMP、TIFF（MinerU、PaddleOCR-VL）
+- 🎙️ **音频**: MP3、WAV、M4A、FLAC（SenseVoice 多语言、说话人识别、情感识别）
+- 🎬 **视频**: MP4、AVI、MKV、MOV、WebM（音频转写 + 关键帧 OCR🧪）
+- 🧬 **生物格式**: FASTA、GenBank（序列统计、碱基分析、GC 含量）
+- 🌐 **其他**: HTML、Markdown、TXT、CSV
 
 ## 🏗️ 项目结构
 
 ```
 mineru-server/
-├── frontend/               # Vue 3 前端项目
-│   ├── src/
-│   │   ├── api/           # API 接口层
-│   │   ├── components/    # 通用组件
-│   │   ├── layouts/       # 布局组件
-│   │   ├── views/         # 页面组件
-│   │   ├── stores/        # Pinia 状态管理
-│   │   ├── router/        # Vue Router
-│   │   └── utils/         # 工具函数
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── README.md          # 前端文档
+├── frontend/              # Vue 3 前端（TypeScript + TailwindCSS）
+│   ├── src/               # 源码（api、components、views、stores、router）
+│   └── vite.config.ts
 │
-├── backend/                # Python 后端项目
-│   ├── api_server.py      # FastAPI 服务器
-│   ├── task_db.py         # 数据库管理
-│   ├── auth/              # 认证授权模块
-│   │   ├── jwt_handler.py       # JWT Token 处理
-│   │   ├── models.py            # 用户数据模型
-│   │   ├── routes.py            # 认证路由
-│   │   ├── dependencies.py      # 依赖注入
-│   │   └── sso.py               # SSO 支持（可选）
-│   ├── audio_engines/     # 音频处理引擎
-│   │   ├── sensevoice_engine.py  # SenseVoice 引擎
-│   │   └── README.md      # 音频引擎文档
-│   ├── format_engines/    # 格式引擎（专业领域文档）
-│   │   ├── base.py        # 格式引擎基类
-│   │   ├── fasta_engine.py      # FASTA 格式引擎
-│   │   ├── genbank_engine.py    # GenBank 格式引擎
-│   │   └── README.md      # 格式引擎文档
-│   ├── video_engines/     # 视频处理引擎
-│   │   ├── video_engine.py      # 视频处理引擎
-│   │   ├── keyframe_extractor.py # 关键帧提取
-│   │   └── README.md      # 视频引擎文档
-│   ├── remove_watermark/  # 水印去除模块
-│   │   ├── watermark_remover.py     # 水印去除器
-│   │   ├── pdf_watermark_handler.py # PDF 水印处理
-│   │   └── README.md      # 水印去除文档
-│   ├── litserve_worker.py # Worker Pool
-│   ├── task_scheduler.py  # 任务调度器
-│   ├── mcp_server.py      # MCP 协议服务器（可选）
-│   ├── start_all.py       # 启动脚本
-│   ├── Dockerfile         # Docker 镜像构建文件
-│   ├── requirements.txt
-│   ├── README.md          # 后端文档
-│   └── MCP_GUIDE.md       # MCP 详细指南
+├── backend/               # Python 后端（FastAPI + LitServe）
+│   ├── api_server.py      # API 服务器
+│   ├── litserve_worker.py # GPU Worker Pool
+│   ├── mcp_server.py      # MCP 协议服务器
+│   ├── auth/              # 认证授权（JWT、SSO）
+│   ├── audio_engines/     # 音频引擎（SenseVoice）
+│   ├── video_engines/     # 视频引擎（FFmpeg + OCR）
+│   ├── format_engines/    # 格式引擎（FASTA、GenBank）
+│   ├── remove_watermark/  # 水印去除（YOLO11x + LaMa）
+│   └── requirements.txt
 │
-├── scripts/               # 部署和工具脚本
-│   ├── docker-setup.sh          # Linux/Mac Docker 部署脚本
-│   ├── docker-setup.bat         # Windows Docker 部署脚本
-│   ├── docker-entrypoint.sh     # Docker 容器入口脚本
-│   ├── docker-commands.sh       # Docker 常用命令参考
-│   └── DOCKER_QUICK_START.txt   # Docker 快速入门指南
+├── scripts/               # 部署脚本
+│   ├── docker-setup.sh    # Linux/Mac 部署
+│   └── docker-setup.bat   # Windows 部署
 │
-├── docker-compose.yml     # Docker Compose 生产环境配置
-├── docker-compose.dev.yml # Docker Compose 开发环境配置
-├── Makefile               # Docker 快捷命令（make setup/start/stop）
-├── .dockerignore          # Docker 构建忽略文件
-├── .env.example           # 环境变量配置模板
-├── mcp_config.example.json # MCP 配置示例
-└── README.md              # 本文件
+├── docker-compose.yml     # Docker 编排配置
+└── Makefile               # 快捷命令
 ```
 
 ## 🚀 快速开始
 
-Tianshu (天枢) 提供**两种部署方式**：
+### 方式一：Docker 部署（⭐ 推荐）
 
-### 方式一：Docker 部署（⭐ 推荐，企业级生产环境）
-
-**适用场景**：生产部署、团队协作、需要容器化和服务编排
-
-#### 前置要求
-
-- **Docker** 20.10+
-- **Docker Compose** 2.0+
-- **NVIDIA Container Toolkit**（GPU 支持，可选）
-- 16GB+ RAM
-- 50GB+ 可用磁盘空间
-
-#### 一键部署
+**前置要求**：Docker 20.10+、Docker Compose 2.0+、NVIDIA Container Toolkit（GPU 可选）
 
 ```bash
-# 使用 Makefile（推荐）
+# 一键部署
 make setup
 
-# 或使用部署脚本
-# Linux/Mac
-./scripts/docker-setup.sh
+# 或使用脚本
+./scripts/docker-setup.sh    # Linux/Mac
+scripts\docker-setup.bat     # Windows
 
-# Windows
-scripts\docker-setup.bat
+# 常用命令
+make start    # 启动服务
+make stop     # 停止服务
+make logs     # 查看日志
 ```
 
-#### 常用命令
-
-```bash
-make start      # 启动服务
-make stop       # 停止服务
-make logs       # 查看日志
-make status     # 查看状态
-make dev        # 启动开发环境
-```
-
-#### 服务访问
-
-- 前端界面: <http://localhost:80>
-- API 文档: <http://localhost:8000/docs>
-- Worker: <http://localhost:8001>
-- MCP: <http://localhost:8002>
-
-**详细文档**：参见 `scripts/DOCKER_QUICK_START.txt`
+**服务访问**：
+- 前端：http://localhost:80
+- API 文档：http://localhost:8000/docs
+- Worker：http://localhost:8001
+- MCP：http://localhost:8002
 
 ---
 
 ### 方式二：本地开发部署
 
-**适用场景**：快速测试、本地开发、学习研究
+**前置要求**：Node.js 18+、Python 3.8+、CUDA（可选）
 
-#### 前置要求
-
-- **Node.js** 18+ (前端)
-- **Python** 3.8+ (后端)
-- **CUDA** (可选,用于 GPU 加速)
-
-### 环境准备（推荐）
-
-**推荐使用自动安装脚本**，它会自动检测系统环境并安装所有依赖：
+**1. 安装依赖**
 
 ```bash
-# 进入后端目录
 cd backend
-
-# Linux/macOS
-bash install.sh
-
-# Windows
-powershell -ExecutionPolicy Bypass -File install.ps1
+bash install.sh              # Linux/macOS 自动安装
+# 或 pip install -r requirements.txt
 ```
 
-安装脚本会自动完成：
-
-- ✅ 检测 Python 版本
-- ✅ 安装系统依赖（libgomp1、ffmpeg 等）
-- ✅ 安装 Python 依赖（MinerU、FunASR、OCR 引擎等）
-- ✅ 验证环境配置
-
-如果自动安装失败，可以手动安装依赖：
+**2. 启动后端**
 
 ```bash
-pip install -r requirements.txt
-```
-
-### 1. 启动后端服务
-
-```bash
-# 进入后端目录（如已在该目录可跳过）
 cd backend
-
-# 一键启动所有服务
-python start_all.py
-
-# 如果需要启用 MCP 协议支持（用于 AI 助手调用）
-python start_all.py --enable-mcp
+python start_all.py          # 启动所有服务
+python start_all.py --enable-mcp  # 启用 MCP 协议
 ```
 
-后端服务将在以下端口启动:
-
-- API Server: <http://localhost:8000>
-- API 文档: <http://localhost:8000/docs>
-- Worker Pool: <http://localhost:9000>
-- MCP Server: <http://localhost:8001> (如启用)
-
-### 2. 启动前端服务
+**3. 启动前端**
 
 ```bash
-# 进入前端目录
 cd frontend
-
-# 安装依赖
 npm install
-
-# 启动开发服务器
-npm run dev
+npm run dev                  # http://localhost:3000
 ```
-
-前端服务将在 <http://localhost:3000> 启动
-
-### 3. 访问应用
-
-打开浏览器访问 <http://localhost:3000>
 
 ## 📖 使用指南
 
 ### 提交任务
 
-1. 点击顶部导航栏的 "提交任务"
-2. 拖拽或点击上传文件（支持批量上传）
-3. 配置解析选项：
-   - 选择处理后端 (pipeline/vlm-transformers/vlm-vllm-engine/deepseek-ocr)
-     - **pipeline**: MinerU 标准流程，适合通用文档解析
-     - **vlm-transformers**: MinerU VLM 模式（Transformers）
-     - **vlm-vllm-engine**: MinerU VLM 模式（vLLM 引擎）
-     - **deepseek-ocr**: DeepSeek OCR 引擎，适合高精度 OCR 需求
-   - 设置文档语言
-   - 启用公式/表格识别
-   - 设置任务优先级
-4. 点击 "提交任务"
+1. 点击"提交任务"，拖拽上传文件（支持批量）
+2. 配置选项：选择引擎（pipeline/vlm）、语言、公式/表格识别、优先级
+3. 提交后在仪表盘或任务列表查看状态
+4. 完成后预览/下载 Markdown 或 JSON 结果
 
-### 查看任务状态
+### 引擎选择
 
-1. 在仪表盘或任务列表中找到你的任务
-2. 点击 "查看" 进入任务详情页
-3. 页面会自动轮询更新任务状态
-4. 任务完成后可以：
-   - 预览 Markdown 结果
-   - 下载 Markdown 文件
-   - 查看处理时长和错误信息（如果失败）
-
-### 管理队列
-
-1. 点击顶部导航栏的 "队列管理"
-2. 查看实时队列统计
-3. 执行管理操作：
-   - 重置超时任务
-   - 清理旧任务文件
-   - 系统健康检查
+- **pipeline**: MinerU 标准流程，通用文档解析
+- **vlm-transformers/vlm-vllm-engine**: MinerU VLM 模式
+<!-- - **deepseek-ocr**: DeepSeek OCR，高精度需求 -->
+- **paddleocr-vl**: 109+ 语言，自动方向矫正
 
 ## 🎯 核心特性
 
-### 前端特性
-
-- **现代化 UI**: 基于 TailwindCSS 的美观界面
-- **响应式设计**: 完美适配桌面端和移动端
-- **实时更新**: 自动刷新队列统计和任务状态
-- **批量操作**: 支持批量文件上传和任务管理
-- **Markdown 预览**: 实时渲染解析结果,支持代码高亮
-
-### 后端特性
-
-- **Worker 主动拉取**: 0.5秒响应速度,无需调度器触发
-- **并发安全**: 原子操作防止任务重复,支持多Worker并发
-- **GPU 负载均衡**: LitServe 自动调度,避免显存冲突
-- **多GPU隔离**: 每个进程只使用分配的GPU
-- **自动清理**: 定期清理旧结果文件,保留数据库记录
-- **多解析引擎**:
-  - **MinerU**: 完整文档解析，支持表格、公式识别
-  - **PaddleOCR-VL**: 多语言 OCR（109+ 语言），文档增强处理
-  - **MarkItDown**: Office 文档和网页解析
-  - **格式引擎**: 插件化专业格式支持（FASTA、GenBank 等）
-- **MCP 协议**: 支持 AI 助手通过标准协议调用文档解析服务
+- **Worker 主动拉取**: 0.5秒响应，无需调度器触发
+- **GPU 负载均衡**: LitServe 自动调度，避免显存冲突，多 GPU 隔离
+- **并发安全**: 原子操作防止任务重复，支持多 Worker 并发
+- **多解析引擎**: MinerU、PaddleOCR-VL、MarkItDown、格式引擎
+- **自动清理**: 定期清理旧文件，保留数据库记录
+- **现代化 UI**: TailwindCSS 美观界面，响应式设计，实时更新
 
 ## ⚙️ 配置说明
 
 ### 后端配置
 
 ```bash
-# 自定义启动配置
+# 自定义启动
 python backend/start_all.py \
-  --output-dir /data/output \
   --api-port 8000 \
   --worker-port 9000 \
   --accelerator cuda \
   --devices 0,1 \
-  --workers-per-device 2
-
-# 启用 MCP 协议支持
-python backend/start_all.py --enable-mcp --mcp-port 8001
+  --workers-per-device 2 \
+  --enable-mcp --mcp-port 8002
 ```
 
 详见 [backend/README.md](backend/README.md)
 
 ### MCP 协议集成
 
-MinerU Tianshu 支持 **Model Context Protocol (MCP)**，可以让 AI 助手（如 Claude Desktop）直接调用文档解析服务。
+MinerU Tianshu 支持 **Model Context Protocol (MCP)**，让 AI 助手（Claude Desktop）直接调用文档解析服务。
 
-#### 什么是 MCP？
-
-MCP 是 Anthropic 推出的开放协议，让 AI 助手可以直接调用外部工具和服务，无需手动 API 集成。
-
-#### 快速配置
-
-**1. 启动服务（启用 MCP）**
+**1. 启动服务**
 
 ```bash
 cd backend
-python start_all.py --enable-mcp
+python start_all.py --enable-mcp  # MCP Server 端口 8002（默认）
 ```
-
-服务启动后，MCP Server 将在端口 8001 运行。
-
-> **📝 版本兼容性说明**：项目使用 mcp 1.18.0 和 litserve 0.2.16。为确保兼容性，在 `litserve_worker.py` 中已自动应用兼容性补丁，无需手动配置。
 
 **2. 配置 Claude Desktop**
 
-编辑配置文件（根据你的操作系统）：
-
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-添加以下内容：
+编辑配置文件（`%APPDATA%\Claude\claude_desktop_config.json` Windows / `~/Library/Application Support/Claude/claude_desktop_config.json` macOS）：
 
 ```json
 {
   "mcpServers": {
     "mineru-tianshu": {
-      "url": "http://localhost:8001/sse",
+      "url": "http://localhost:8002/sse",
       "transport": "sse"
     }
   }
 }
 ```
 
-**远程服务器部署：** 将 `localhost` 替换为服务器 IP：
+> **注意**：MCP Server 默认端口为 8002（本地和 Docker 部署均相同）
 
-```json
-{
-  "mcpServers": {
-    "mineru-tianshu": {
-      "url": "http://your-server-ip:8001/sse",
-      "transport": "sse"
-    }
-  }
-}
-```
+**3. 使用**
 
-**3. 重启 Claude Desktop**
+在 Claude 中直接说：`帮我解析这个 PDF：C:/Users/user/doc.pdf`
 
-配置完成后，重启 Claude Desktop 使配置生效。
+**支持的工具**：
+- `parse_document`: 解析文档（Base64 或 URL，最大 500MB）
+- `get_task_status`: 查询任务状态
+- `list_tasks`: 列出最近任务
+- `get_queue_stats`: 获取队列统计
 
-**4. 开始使用**
-
-在 Claude 对话中，直接使用自然语言：
-
-```
-帮我解析这个 PDF 文件：C:/Users/user/document.pdf
-```
-
-或：
-
-```
-请解析这个在线论文：https://arxiv.org/pdf/2301.12345.pdf
-```
-
-Claude 会自动：
-
-1. 读取文件或下载 URL
-2. 调用 MinerU Tianshu 解析服务
-3. 等待处理完成
-4. 返回 Markdown 格式的解析结果
-
-#### 支持的功能
-
-MCP Server 提供 4 个工具：
-
-1. **parse_document** - 解析文档为 Markdown 格式
-   - 输入方式：Base64 编码或 URL
-   - 支持格式：PDF、图片、Office 文档、网页和文本
-   - 文件大小：可在 .env 配置 MAX_FILE_SIZE（默认 500MB）
-
-2. **get_task_status** - 查询任务状态和结果
-
-3. **list_tasks** - 列出最近的任务
-
-4. **get_queue_stats** - 获取队列统计信息
-
-#### 技术架构
-
-```
-Claude Desktop (客户端)
-    ↓ MCP Protocol (SSE)
-MCP Server (Port 8001)
-    ↓ HTTP REST API
-API Server (Port 8000)
-    ↓ Task Queue
-LitServe Worker Pool (Port 9000)
-    ↓ GPU Processing
-MinerU / MarkItDown
-```
-
-#### 常见问题
-
-**Q: MCP Server 无法启动？**
-
-- 检查端口 8001 是否被占用
-- 使用 `--mcp-port` 指定其他端口
-
-**Q: Claude Desktop 无法连接？**
-
-1. 确认 MCP Server 正在运行：访问 `http://localhost:8001/health`
-2. 检查配置文件 JSON 格式是否正确
-3. 确认端点 URL 是 `/sse` 而不是 `/mcp/sse`
-4. 重启 Claude Desktop
-
-**Q: 文件传输失败？**
-
-- 小文件自动使用 Base64 编码
-- 超过限制（默认 500MB）会返回错误，可通过 .env 中的 MAX_FILE_SIZE 调整
-- URL 文件需要公开可访问
-
-**详细文档：** [backend/MCP_GUIDE.md](backend/MCP_GUIDE.md)
-
-### 前端配置
-
-开发环境修改 `frontend/.env.development`:
-
-```
-VITE_API_BASE_URL=http://localhost:8000
-```
-
-生产环境修改 `frontend/.env.production`:
-
-```
-VITE_API_BASE_URL=/api
-```
-
-详见 [frontend/README.md](frontend/README.md)
+详见 [backend/MCP_GUIDE.md](backend/MCP_GUIDE.md)
 
 ## 🚢 生产部署
 
-### 前端构建
+推荐使用 Docker 部署。如需手动部署：
 
-```bash
-cd frontend
-npm run build
-```
+**前端构建**：`cd frontend && npm run build`（产物在 `dist/`）
 
-构建产物在 `frontend/dist/` 目录。
-
-### Nginx 配置示例
-
+**Nginx 配置**：
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
-
-    # 前端静态文件
     root /path/to/frontend/dist;
-    index index.html;
-
-    # 前端路由
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API 代理到后端
-    location /api/ {
-        proxy_pass http://localhost:8000/api/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
+    location / { try_files $uri $uri/ /index.html; }
+    location /api/ { proxy_pass http://localhost:8000/api/; }
 }
 ```
 
-### 后端部署
-
-使用 systemd 或 supervisor 管理后端服务:
-
-```bash
-# 启动后端
-cd backend
-python start_all.py --api-port 8000 --worker-port 9000
-```
+**后端部署**：`cd backend && python start_all.py --api-port 8000 --worker-port 9000`
 
 ## 📚 技术栈
 
-### 前端
+**前端**：Vue 3、TypeScript、Vite、TailwindCSS、Pinia、Vue Router
 
-- Vue 3 (Composition API)
-- TypeScript
-- Vite
-- TailwindCSS
-- Vue Router
-- Pinia
-- Axios
-- Marked (Markdown 渲染)
-- Highlight.js (代码高亮)
-- Lucide Vue (图标)
-
-### 后端
-
-- FastAPI
-- LitServe
-- MinerU
-- DeepSeek OCR
-- MarkItDown
-- SQLite
-- Loguru
-- MinIO (可选)
+**后端**：FastAPI、LitServe、MinerU、PaddleOCR、SenseVoice、SQLite、Loguru
 
 ## 🔧 故障排查
 
-### 前端无法连接后端
+**前端无法连接**：`curl http://localhost:8000/api/v1/health` 检查后端，查看 `vite.config.ts` 代理配置
 
-检查后端是否正常运行:
+**Worker 无法启动**：`nvidia-smi` 检查 GPU，`pip list | grep mineru` 检查依赖
 
-```bash
-curl http://localhost:8000/api/v1/health
-```
-
-检查前端代理配置:
-
-```typescript
-// frontend/vite.config.ts
-server: {
-  proxy: {
-    '/api': {
-      target: 'http://localhost:8000',
-      changeOrigin: true,
-    }
-  }
-}
-```
-
-### Worker 无法启动
-
-检查 GPU 可用性:
-
-```bash
-nvidia-smi
-```
-
-检查 Python 依赖:
-
-```bash
-pip list | grep -E "(mineru|litserve|torch)"
-```
-
-更多故障排查,请参考:
-
-- [前端故障排查](frontend/README.md)
-- [后端故障排查](backend/README.md)
+详见 [frontend/README.md](frontend/README.md) 和 [backend/README.md](backend/README.md)
 
 ## 📄 API 文档
 
-启动后端后,访问 <http://localhost:8000/docs> 查看完整的 API 文档。
+访问 <http://localhost:8000/docs> 查看完整 API 文档
 
-主要 API 端点:
-
+主要端点：
 - `POST /api/v1/tasks/submit` - 提交任务
-- `GET /api/v1/tasks/{task_id}` - 查询任务状态
-- `DELETE /api/v1/tasks/{task_id}` - 取消任务
-- `GET /api/v1/queue/stats` - 获取队列统计
-- `GET /api/v1/queue/tasks` - 获取任务列表
+- `GET /api/v1/tasks/{task_id}` - 查询状态
+- `GET /api/v1/queue/stats` - 队列统计
 
 ## 🤝 贡献
 

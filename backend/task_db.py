@@ -11,6 +11,7 @@ import uuid
 from contextlib import contextmanager
 from typing import Optional, List, Dict
 from pathlib import Path
+from loguru import logger
 
 
 class TaskDB:
@@ -389,81 +390,67 @@ class TaskDB:
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    def cleanup_old_task_files(self, days: int = 7):
+    def cleanup_old_task_records(self, days: int = 30):
         """
-        清理旧任务的结果文件（保留数据库记录）
+        清理旧任务（同时删除所有相关文件和数据库记录）
 
         Args:
-            days: 清理多少天前的任务文件
+            days: 删除多少天前的任务
 
         Returns:
-            int: 删除的文件目录数
+            int: 删除的任务记录数
+
+        清理内容：
+            - 上传的原始文件（file_path）
+            - 结果文件夹及其所有内容（result_path，包括生成的文件和中间文件）
+            - 数据库记录
 
         注意：
-            - 只删除结果文件，保留数据库记录
-            - 数据库中的 result_path 字段会被清空
-            - 用户仍可查询任务状态和历史记录
+            - 操作不可恢复
+            - 建议设置合理的保留期（如 7-30 天）
+            - 由定时任务自动执行，也可通过管理接口手动触发
         """
         from pathlib import Path
         import shutil
 
         with self.get_cursor() as cursor:
-            # 查询要清理文件的任务
+            # 先查询要删除的任务及其文件路径（包括上传文件和结果文件）
             cursor.execute(
                 """
-                SELECT task_id, result_path FROM tasks
+                SELECT task_id, file_path, result_path FROM tasks
                 WHERE completed_at < datetime('now', '-' || ? || ' days')
                 AND status IN ('completed', 'failed')
-                AND result_path IS NOT NULL
             """,
                 (days,),
             )
 
             old_tasks = cursor.fetchall()
-            file_count = 0
 
-            # 删除结果文件
+            # 删除所有相关文件
             for task in old_tasks:
+                task_id = task["task_id"]
+
+                # 1. 删除上传的原始文件
+                if task["file_path"]:
+                    file_path = Path(task["file_path"])
+                    if file_path.exists() and file_path.is_file():
+                        try:
+                            file_path.unlink()
+                            logger.debug(f"Deleted upload file for task {task_id}: {file_path.name}")
+                        except Exception as e:
+                            logger.warning(f"Failed to delete upload file for task {task_id}: {e}")
+
+                # 2. 删除结果文件夹（包含所有生成的文件和中间文件）
                 if task["result_path"]:
                     result_path = Path(task["result_path"])
                     if result_path.exists() and result_path.is_dir():
                         try:
                             shutil.rmtree(result_path)
-                            file_count += 1
-
-                            # 清空数据库中的 result_path，表示文件已被清理
-                            cursor.execute(
-                                """
-                                UPDATE tasks
-                                SET result_path = NULL
-                                WHERE task_id = ?
-                            """,
-                                (task["task_id"],),
-                            )
-
+                            logger.debug(f"Deleted result directory for task {task_id}: {result_path.name}")
                         except Exception as e:
-                            from loguru import logger
+                            logger.warning(f"Failed to delete result files for task {task_id}: {e}")
 
-                            logger.warning(f"Failed to delete result files for task {task['task_id']}: {e}")
-
-            return file_count
-
-    def cleanup_old_task_records(self, days: int = 30):
-        """
-        清理极旧的任务记录（可选功能）
-
-        Args:
-            days: 删除多少天前的任务记录
-
-        Returns:
-            int: 删除的记录数
-
-        注意：
-            - 这个方法会永久删除数据库记录
-            - 建议设置较长的保留期（如30-90天）
-            - 一般情况下不需要调用此方法
-        """
-        with self.get_cursor() as cursor:
+            # 删除数据库记录
             cursor.execute(
                 """
                 DELETE FROM tasks

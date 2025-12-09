@@ -29,9 +29,9 @@ from starlette.routing import Route
 import aiohttp
 from loguru import logger
 
-# 文件大小限制（从环境变量读取，默认 500MB）
-MAX_FILE_SIZE_BYTES = int(os.getenv("MAX_FILE_SIZE", "524288000"))  # 500MB
-MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024)
+# 文件大小限制（从环境变量读取，0 表示不限制）
+MAX_FILE_SIZE_BYTES = int(os.getenv("MAX_FILE_SIZE", "0"))  # 0 = 不限制
+MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024) if MAX_FILE_SIZE_BYTES > 0 else 0
 import uvicorn
 
 # API 配置（从环境变量读取）
@@ -71,7 +71,7 @@ async def list_tools() -> list[Tool]:
                     # 方式 1: Base64 编码（小文件推荐）
                     "file_base64": {
                         "type": "string",
-                        "description": f"Base64 编码的文件内容（最大 {MAX_FILE_SIZE_MB:.0f}MB）",
+                        "description": "Base64 编码的文件内容",
                     },
                     "file_name": {"type": "string", "description": "文件名（使用 file_base64 时必需）"},
                     # 方式 2: URL 下载
@@ -233,9 +233,9 @@ async def parse_document(args: dict) -> list[TextContent]:
 
                 file_name = args["file_name"]
 
-                # 检查文件大小
+                # 检查文件大小（如果设置了限制）
                 size_mb = len(file_content) / (1024 * 1024)
-                if size_mb > MAX_FILE_SIZE_MB:
+                if MAX_FILE_SIZE_BYTES > 0 and size_mb > MAX_FILE_SIZE_MB:
                     return [
                         TextContent(
                             type="text",
@@ -293,7 +293,7 @@ async def parse_document(args: dict) -> list[TextContent]:
                         file_content = await resp.read()
                         size_mb = len(file_content) / (1024 * 1024)
 
-                        if size_mb > MAX_FILE_SIZE_MB:
+                        if MAX_FILE_SIZE_BYTES > 0 and size_mb > MAX_FILE_SIZE_MB:
                             return [
                                 TextContent(
                                     type="text",
@@ -692,7 +692,7 @@ async def main():
 
     # 从环境变量读取配置
     host = os.getenv("MCP_HOST", "0.0.0.0")
-    port = int(os.getenv("MCP_PORT", "8001"))
+    port = int(os.getenv("MCP_PORT", "8002"))
 
     logger.info(f"🌐 MCP Server listening on http://{host}:{port}")
     logger.info(f"📡 SSE endpoint: http://{host}:{port}/sse")

@@ -20,7 +20,7 @@ COPY frontend/package*.json ./
 # 安装依赖（使用国内镜像加速）
 # 注意：构建阶段需要 devDependencies（包括 vite, typescript, postcss 等）
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci --ignore-scripts && \
+    npm install --ignore-scripts && \
     npm cache clean --force
 
 # 复制前端源代码
@@ -45,8 +45,7 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # 文件上传大小限制（与环境变量 MAX_FILE_SIZE 保持一致）
-    # 默认 500MB，可通过 docker-compose.yml 的环境变量调整
+    # 文件上传大小限制（0 表示不限制）
     client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
 
     # Gzip 压缩
@@ -63,13 +62,14 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate";
     }
 
-    # 静态资源缓存
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+    # 静态资源缓存（排除 /api/ 路径，避免干扰后端静态文件服务）
+    location ~* ^(?!/api/).*\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
 
-    # API 代理（如果需要）
+    # API 代理（包括静态文件）
+    # /api/v1/files/output/* 会被代理到后端的静态文件服务
     location /api/ {
         proxy_pass http://backend:8000/;
         proxy_http_version 1.1;
@@ -114,8 +114,8 @@ RUN cat > /docker-entrypoint.sh <<'SCRIPT'
 #!/bin/sh
 set -e
 
-# 设置默认值（如果环境变量未设置）
-export NGINX_CLIENT_MAX_BODY_SIZE=${NGINX_CLIENT_MAX_BODY_SIZE:-500m}
+# 设置默认值（如果环境变量未设置，0 表示不限制）
+export NGINX_CLIENT_MAX_BODY_SIZE=${NGINX_CLIENT_MAX_BODY_SIZE:-0}
 
 # 替换 Nginx 配置中的环境变量
 envsubst '${NGINX_CLIENT_MAX_BODY_SIZE}' < /etc/nginx/conf.d/default.conf > /tmp/default.conf

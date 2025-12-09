@@ -17,10 +17,13 @@ import signal
 import atexit
 from pathlib import Path
 from typing import Optional
+import multiprocessing
 
 # Fix litserve MCP compatibility with mcp>=1.1.0
 # Completely disable LitServe's internal MCP to avoid conflicts with our standalone MCP Server
 import litserve as ls
+from litserve.connector import check_cuda_with_nvidia_smi
+from utils import parse_list_arg
 
 try:
     # Patch LitServe's MCP module to disable it completely
@@ -88,6 +91,7 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from task_db import TaskDB
+from output_normalizer import normalize_output
 
 # 延迟导入 MinerU，避免过早初始化 CUDA
 # MinerU 会在 setup() 设置 CUDA_VISIBLE_DEVICES 后再导入
@@ -113,8 +117,21 @@ if PADDLEOCR_VL_AVAILABLE:
 else:
     logger.info("ℹ️  PaddleOCR-VL not available (optional)")
 
-# 尝试导入 SenseVoice 音频处理
+# 检查 PaddleOCR-VL-VLLM 是否可用（不要导入，避免初始化 CUDA）
+PADDLEOCR_VL_VLLM_AVAILABLE = importlib.util.find_spec("paddleocr_vl_vllm") is not None
+if PADDLEOCR_VL_VLLM_AVAILABLE:
+    logger.info("✅ PaddleOCR-VL-VLLM engine available")
+else:
+    logger.info("ℹ️  PaddleOCR-VL-VLLM not available (optional)")
 
+# 检查 MinerU Pipeline 是否可用
+MINERU_PIPELINE_AVAILABLE = importlib.util.find_spec("mineru_pipeline") is not None
+if MINERU_PIPELINE_AVAILABLE:
+    logger.info("✅ MinerU Pipeline engine available")
+else:
+    logger.info("ℹ️  MinerU Pipeline not available (optional)")
+
+# 尝试导入 SenseVoice 音频处理
 SENSEVOICE_AVAILABLE = importlib.util.find_spec("audio_engines") is not None
 if SENSEVOICE_AVAILABLE:
     logger.info("✅ SenseVoice audio engine available")
@@ -152,18 +169,25 @@ except ImportError as e:
 
 
 class MinerUWorkerAPI(ls.LitAPI):
-    """
-    MinerU Tianshu Worker API
-
-    继承自 LitServe 的 LitAPI，实现自动负载均衡
-    Worker 主动循环拉取任务并处理，无需外部调度
-    """
-
-    def __init__(self):
-        """初始化 API (不接受参数，参数通过类属性传递)"""
+    def __init__(
+        self,
+        paddleocr_vl_vllm_api_list=None,
+        output_dir=None,
+        poll_interval=0.5,
+        enable_worker_loop=True,
+        paddleocr_vl_vllm_engine_enabled=False,
+    ):
+        """
+        初始化 API：直接在这里接收所有需要的参数
+        """
         super().__init__()
-        # 这些属性会在创建实例前设置（通过类属性）
-        # 在 setup() 中会用到
+        self.output_dir = output_dir or os.getenv("OUTPUT_PATH", "/app/output")
+        self.poll_interval = poll_interval
+        self.enable_worker_loop = enable_worker_loop
+        self.paddleocr_vl_vllm_engine_enabled = paddleocr_vl_vllm_engine_enabled
+        self.paddleocr_vl_vllm_api_list = paddleocr_vl_vllm_api_list or []
+        ctx = multiprocessing.get_context("spawn")
+        self._global_worker_counter = ctx.Value("i", 0)
 
     def setup(self, device):
         """
@@ -172,6 +196,19 @@ class MinerUWorkerAPI(ls.LitAPI):
         Args:
             device: 设备 ID (cuda:0, cuda:1, cpu 等)
         """
+        ## 配置每个 Worker 的全局索引并尝试性分配self.paddleocr_vl_vllm_api
+        with self._global_worker_counter.get_lock():
+            my_global_index = self._global_worker_counter.value
+            self._global_worker_counter.value += 1
+        logger.info(f"🔢 [Init] I am Global Worker #{my_global_index} (on {device})")
+        if self.paddleocr_vl_vllm_engine_enabled and len(self.paddleocr_vl_vllm_api_list) > 0:
+            assigned_api = self.paddleocr_vl_vllm_api_list[my_global_index % len(self.paddleocr_vl_vllm_api_list)]
+            self.paddleocr_vl_vllm_api = assigned_api
+            logger.info(f"🔧 Worker #{my_global_index} assigned Paddle OCR VL API: {assigned_api}")
+        else:
+            self.paddleocr_vl_vllm_api = None
+            logger.info(f"🔧 Worker #{my_global_index} assigned Paddle OCR VL API: None")
+
         # ============================================================================
         # 【关键】第一步：立即设置 CUDA_VISIBLE_DEVICES（必须在任何导入之前）
         # ============================================================================
@@ -190,10 +227,10 @@ class MinerUWorkerAPI(ls.LitAPI):
 
         # 配置模型下载源（必须在 MinerU 初始化之前）
         # 从环境变量 MODEL_DOWNLOAD_SOURCE 读取配置
-        # 支持: modescope, huggingface, auto (默认)
+        # 支持: modelscope, huggingface, auto (默认)
         model_source = os.getenv("MODEL_DOWNLOAD_SOURCE", "auto").lower()
 
-        if model_source in ["modescope", "auto"]:
+        if model_source in ["modelscope", "auto"]:
             # 尝试使用 ModelScope（优先）
             try:
                 import importlib.util
@@ -204,7 +241,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                 else:
                     raise ImportError("modelscope not found")
             except ImportError:
-                if model_source == "modescope":
+                if model_source == "modelscope":
                     logger.warning("⚠️  ModelScope not available, falling back to HuggingFace")
                 model_source = "huggingface"
 
@@ -213,12 +250,12 @@ class MinerUWorkerAPI(ls.LitAPI):
             hf_endpoint = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
             os.environ.setdefault("HF_ENDPOINT", hf_endpoint)
             logger.info(f"📦 Model download source: HuggingFace (via: {hf_endpoint})")
-        elif model_source == "modescope":
-            # 即使使用 ModelScope，也为 MinerU 设置 HuggingFace 镜像（作为备用）
-            # 因为 MinerU 内部部分模型可能仍需要从 HuggingFace 下载
-            hf_endpoint = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
-            os.environ.setdefault("HF_ENDPOINT", hf_endpoint)
-            logger.info(f"   Also configured HF_ENDPOINT={hf_endpoint} for MinerU compatibility")
+        elif model_source == "modelscope":
+            ## 通过环境变量配置,来让模型从modelscope平台下载, 或者从modelscope的缓存目录加载
+            os.environ["MINERU_MODEL_SOURCE"] = "modelscope"
+            logger.info("📦 Model download source: ModelScope")
+        else:
+            logger.warning(f"⚠️  Unknown model download source: {model_source}")
 
         self.device = device
         # 从类属性获取配置（由 start_litserve_workers 设置）
@@ -231,8 +268,7 @@ class MinerUWorkerAPI(ls.LitAPI):
         # ============================================================================
         # 第二步：现在可以安全地导入 MinerU 了（CUDA_VISIBLE_DEVICES 已设置）
         # ============================================================================
-        global do_parse, get_vram, clean_memory
-        from mineru.cli.common import do_parse
+        global get_vram, clean_memory
         from mineru.utils.model_utils import get_vram, clean_memory
 
         # 配置 MinerU 的 VRAM 设置
@@ -310,10 +346,13 @@ class MinerUWorkerAPI(ls.LitAPI):
         hostname = socket.gethostname()
         pid = os.getpid()
         self.worker_id = f"tianshu-{hostname}-{device}-{pid}"
+        # 子进程（setup 中）：
 
         # 初始化可选的处理引擎
         self.markitdown = MarkItDown() if MARKITDOWN_AVAILABLE else None
+        self.mineru_pipeline_engine = None  # 延迟加载
         self.paddleocr_vl_engine = None  # 延迟加载
+        self.paddleocr_vl_vllm_engine = None  # 延迟加载
         self.sensevoice_engine = None  # 延迟加载
         self.video_engine = None  # 延迟加载
         self.watermark_handler = None  # 延迟加载
@@ -332,6 +371,7 @@ class MinerUWorkerAPI(ls.LitAPI):
         # 打印可用的引擎
         logger.info("📦 Available Engines:")
         logger.info(f"   • MarkItDown: {'✅' if MARKITDOWN_AVAILABLE else '❌'}")
+        logger.info(f"   • MinerU Pipeline: {'✅' if MINERU_PIPELINE_AVAILABLE else '❌'}")
         logger.info(f"   • PaddleOCR-VL: {'✅' if PADDLEOCR_VL_AVAILABLE else '❌'}")
         logger.info(f"   • SenseVoice: {'✅' if SENSEVOICE_AVAILABLE else '❌'}")
         logger.info(f"   • Video Engine: {'✅' if VIDEO_ENGINE_AVAILABLE else '❌'}")
@@ -501,8 +541,20 @@ class MinerUWorkerAPI(ls.LitAPI):
                 logger.info(f"🔍 Processing with PaddleOCR-VL: {file_path}")
                 result = self._process_with_paddleocr_vl(file_path, options)
 
+            # 5. 用户指定了 PaddleOCR-VL-VLLM
+            elif backend == "paddleocr-vl-vllm":
+                if (
+                    not PADDLEOCR_VL_VLLM_AVAILABLE
+                    or not self.paddleocr_vl_vllm_engine_enabled
+                    or len(self.paddleocr_vl_vllm_api_list) == 0
+                ):
+                    raise ValueError("PaddleOCR-VL-VLLM engine is not available")
+                logger.info(f"🔍 Processing with PaddleOCR-VL-VLLM: {file_path}")
+                result = self._process_with_paddleocr_vl_vllm(file_path, options)
             # 6. 用户指定了 MinerU Pipeline
             elif backend == "pipeline":
+                if not MINERU_PIPELINE_AVAILABLE:
+                    raise ValueError("MinerU Pipeline engine is not available")
                 logger.info(f"🔧 Processing with MinerU Pipeline: {file_path}")
                 result = self._process_with_mineru(file_path, options)
 
@@ -524,7 +576,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                     result = self._process_video(file_path, options)
 
                 # 7.4 默认使用 MinerU Pipeline 处理 PDF/图片
-                elif file_ext in [".pdf", ".png", ".jpg", ".jpeg"]:
+                elif file_ext in [".pdf", ".png", ".jpg", ".jpeg"] and MINERU_PIPELINE_AVAILABLE:
                     logger.info(f"🔧 [Auto] Processing with MinerU Pipeline: {file_path}")
                     result = self._process_with_mineru(file_path, options)
 
@@ -596,103 +648,36 @@ class MinerUWorkerAPI(ls.LitAPI):
         - MinerU 的 do_parse 只接受 PDF 格式，图片需要先转换为 PDF
         - CUDA_VISIBLE_DEVICES 已在 setup() 阶段设置，MinerU 会自动使用正确的 GPU
         """
-        import img2pdf
+        # 延迟加载 MinerU Pipeline（单例模式）
+        if self.mineru_pipeline_engine is None:
+            from mineru_pipeline import MinerUPipelineEngine
 
-        file_stem = Path(file_path).stem
-        file_ext = Path(file_path).suffix.lower()
-        output_dir = Path(self.output_dir) / file_stem
+            # 注意：由于在 setup() 中已设置 CUDA_VISIBLE_DEVICES，
+            # 该进程只能看到一个 GPU（映射为 cuda:0）
+            self.mineru_pipeline_engine = MinerUPipelineEngine(device="cuda:0")
+            gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
+            logger.info(f"✅ MinerU Pipeline engine loaded on cuda:0 (physical GPU {gpu_id})")
+
+        # 设置输出目录
+        output_dir = Path(self.output_dir) / Path(file_path).stem
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 读取文件为字节
-        with open(file_path, "rb") as f:
-            file_bytes = f.read()
+        # 处理文件
+        result = self.mineru_pipeline_engine.parse(file_path, output_path=str(output_dir), options=options)
 
-        # MinerU 的 do_parse 只支持 PDF 格式
-        # 图片文件需要先转换为 PDF
-        if file_ext in [".png", ".jpg", ".jpeg"]:
-            logger.info("🖼️  Converting image to PDF for MinerU processing...")
-            try:
-                pdf_bytes = img2pdf.convert(file_bytes)
-                file_name = f"{file_stem}.pdf"  # 使用 .pdf 扩展名
-                logger.info(f"✅ Image converted: {file_name} ({len(pdf_bytes)} bytes)")
-            except Exception as e:
-                logger.error(f"❌ Image conversion failed: {e}")
-                raise ValueError(f"Failed to convert image to PDF: {e}")
-        else:
-            # PDF 文件直接使用
-            pdf_bytes = file_bytes
-            file_name = Path(file_path).name
+        # 规范化输出（统一文件名和目录结构）
+        # 注意：result["result_path"] 是实际包含 md 文件的目录（例如 {output_dir}/{file_name}/auto/）
+        # 我们需要在这个result["result_path"] 上运行 normalize_output
+        actual_output_dir = Path(result["result_path"])
+        normalize_output(actual_output_dir)
 
-        # 获取语言设置
-        # MinerU 不支持 "auto"，默认使用中文
-        lang = options.get("lang", "auto")
-        if lang == "auto":
-            lang = "ch"
-            logger.info("🌐 Language set to 'ch' (MinerU doesn't support 'auto')")
-
-        # 调用 MinerU 新版 API（批量处理接口）
-        # 新版 API 接受列表参数，即使只有一个文件也要用列表
-        # output_format 支持: "md", "md_json" (同时输出 markdown 和 JSON)
-        do_parse(
-            pdf_file_names=[file_name],  # 文件名列表
-            pdf_bytes_list=[pdf_bytes],  # 文件字节列表
-            p_lang_list=[lang],  # 语言列表
-            output_dir=str(output_dir),  # 输出目录
-            output_format="md_json",  # 同时输出 Markdown 和 JSON
-            end_page_id=options.get("end_page_id"),
-            layout_mode=options.get("layout_mode", True),
-            formula_enable=options.get("formula_enable", True),
-            table_enable=options.get("table_enable", True),
-        )
-
-        # MinerU 新版输出结构: {output_dir}/{file_name}/auto/{file_stem}.md
-        # 递归查找 markdown 文件和 JSON 文件
-        md_files = list(output_dir.rglob("*.md"))
-
-        if md_files:
-            # 使用第一个找到的 md 文件
-            md_file = md_files[0]
-            logger.info(f"✅ Found MinerU output: {md_file}")
-            content = md_file.read_text(encoding="utf-8")
-
-            # 返回实际的输出目录（包含 auto/ 子目录）
-            actual_output_dir = md_file.parent
-
-            # 查找 JSON 文件
-            # MinerU 输出的 JSON 文件格式: {filename}_content_list.json, {filename}_middle.json, {filename}_model.json
-            # 我们主要关注 content_list.json（包含结构化内容）
-            json_files = [
-                f
-                for f in actual_output_dir.rglob("*.json")
-                if "_content_list.json" in f.name and not f.parent.name.startswith("page_")
-            ]
-
-            result = {
-                "result_path": str(actual_output_dir),  # 返回包含所有输出的目录
-                "content": content,
-            }
-
-            # 如果找到 JSON 文件，也读取它
-            if json_files:
-                json_file = json_files[0]
-                logger.info(f"✅ Found MinerU JSON output: {json_file}")
-                try:
-                    with open(json_file, "r", encoding="utf-8") as f:
-                        json_content = json.load(f)
-                    result["json_path"] = str(json_file)
-                    result["json_content"] = json_content
-                except Exception as e:
-                    logger.warning(f"⚠️  Failed to load JSON: {e}")
-            else:
-                logger.info("ℹ️  No JSON output found (MinerU may not generate it by default)")
-
-            return result
-        else:
-            # 如果找不到 md 文件，列出输出目录内容以便调试
-            logger.error("❌ MinerU output directory structure:")
-            for item in output_dir.rglob("*"):
-                logger.error(f"   {item}")
-            raise FileNotFoundError(f"MinerU output not found in: {output_dir}")
+        # MinerU Pipeline 返回结构：
+        return {
+            "result_path": result["result_path"],
+            "content": result["markdown"],
+            "json_path": result.get("json_path"),
+            "json_content": result.get("json_content"),
+        }
 
     def _process_with_markitdown(self, file_path: str) -> dict:
         """使用 MarkItDown 处理 Office 文档"""
@@ -702,11 +687,19 @@ class MinerUWorkerAPI(ls.LitAPI):
         # 处理文件
         result = self.markitdown.convert(file_path)
 
-        # 保存结果
-        output_file = Path(self.output_dir) / f"{Path(file_path).stem}_markitdown.md"
+        # 创建输出目录（与其他引擎保持一致）
+        output_dir = Path(self.output_dir) / Path(file_path).stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 保存结果到目录中
+        output_file = output_dir / f"{Path(file_path).stem}_markitdown.md"
         output_file.write_text(result.text_content, encoding="utf-8")
 
-        return {"result_path": str(output_file), "content": result.text_content}
+        # 规范化输出（统一文件名和目录结构）
+        normalize_output(output_dir)
+
+        # 返回目录路径（与其他引擎保持一致）
+        return {"result_path": str(output_dir), "content": result.text_content}
 
     def _process_with_paddleocr_vl(self, file_path: str, options: dict) -> dict:
         """使用 PaddleOCR-VL 处理图片或 PDF"""
@@ -726,6 +719,36 @@ class MinerUWorkerAPI(ls.LitAPI):
 
         # 处理文件（parse 方法需要 output_path）
         result = self.paddleocr_vl_engine.parse(file_path, output_path=str(output_dir))
+
+        # 规范化输出（统一文件名和目录结构）
+        normalize_output(output_dir)
+
+        # 返回结果
+        return {"result_path": str(output_dir), "content": result.get("markdown", "")}
+
+    def _process_with_paddleocr_vl_vllm(self, file_path: str, options: dict) -> dict:
+        """使用 PaddleOCR-VL VLLM 处理图片或 PDF"""
+        # 延迟加载 PaddleOCR-VL（单例模式）
+        if self.paddleocr_vl_vllm_engine is None:
+            from paddleocr_vl_vllm import PaddleOCRVLVLLMEngine
+
+            # 注意：由于在 setup() 中已设置 CUDA_VISIBLE_DEVICES，
+            # 该进程只能看到一个 GPU（映射为 cuda:0）
+            self.paddleocr_vl_vllm_engine = PaddleOCRVLVLLMEngine(
+                device="cuda:0", vllm_api_base=self.paddleocr_vl_vllm_api
+            )
+            gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
+            logger.info(f"✅ PaddleOCR-VL engine loaded on cuda:0 (physical GPU {gpu_id})")
+
+        # 设置输出目录
+        output_dir = Path(self.output_dir) / Path(file_path).stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 处理文件（parse 方法需要 output_path）
+        result = self.paddleocr_vl_vllm_engine.parse(file_path, output_path=str(output_dir))
+
+        # 规范化输出（统一文件名和目录结构）
+        normalize_output(output_dir)
 
         # 返回结果
         return {"result_path": str(output_dir), "content": result.get("markdown", "")}
@@ -754,6 +777,9 @@ class MinerUWorkerAPI(ls.LitAPI):
             use_itn=options.get("use_itn", True),
         )
 
+        # 规范化输出（统一文件名和目录结构）
+        normalize_output(output_dir)
+
         # SenseVoice 返回结构：
         # {
         #   "success": True,
@@ -778,20 +804,30 @@ class MinerUWorkerAPI(ls.LitAPI):
             gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
             logger.info(f"✅ Video processing engine loaded on cuda:0 (physical GPU {gpu_id})")
 
+        # 创建输出目录（与其他引擎保持一致）
+        output_dir = Path(self.output_dir) / Path(file_path).stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         # 处理视频
-        result = self.video_engine.process_video(
+        result = self.video_engine.parse(
             video_path=file_path,
-            extract_keyframes=options.get("extract_keyframes", True),
-            transcribe_audio=options.get("transcribe_audio", True),
-            keyframe_interval=options.get("keyframe_interval", 30),
+            output_path=str(output_dir),
             language=options.get("lang", "auto"),
+            use_itn=options.get("use_itn", True),
+            keep_audio=options.get("keep_audio", False),
+            enable_keyframe_ocr=options.get("enable_keyframe_ocr", False),
+            ocr_backend=options.get("ocr_backend", "paddleocr-vl"),
+            keep_keyframes=options.get("keep_keyframes", False),
         )
 
         # 保存结果（Markdown 格式）
-        output_file = Path(self.output_dir) / f"{Path(file_path).stem}_video_analysis.md"
+        output_file = output_dir / f"{Path(file_path).stem}_video_analysis.md"
         output_file.write_text(result["markdown"], encoding="utf-8")
 
-        return {"result_path": str(output_file), "content": result["markdown"]}
+        # 规范化输出（统一文件名和目录结构）
+        normalize_output(output_dir)
+
+        return {"result_path": str(output_dir), "content": result["markdown"]}
 
     def _preprocess_remove_watermark(self, file_path: str, options: dict) -> Path:
         """
@@ -914,6 +950,10 @@ class MinerUWorkerAPI(ls.LitAPI):
         backup_json_file.write_text(json.dumps(result["json_content"], indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info(f"📄 Backup JSON saved: {backup_json_file.name}")
 
+        # 规范化输出（统一文件名和目录结构）
+        # Format Engine 已经输出标准格式，但仍然调用规范化器以确保一致性
+        normalize_output(output_dir)
+
         return {
             "result_path": str(output_dir),  # 返回任务专属目录
             "content": result["content"],
@@ -1030,9 +1070,11 @@ def start_litserve_workers(
     accelerator="auto",
     devices="auto",
     workers_per_device=1,
-    port=9000,
+    port=8001,
     poll_interval=0.5,
     enable_worker_loop=True,
+    paddleocr_vl_vllm_engine_enabled=False,
+    paddleocr_vl_vllm_api_list=[],
 ):
     """
     启动 LitServe Worker Pool
@@ -1045,7 +1087,30 @@ def start_litserve_workers(
         port: 服务端口
         poll_interval: Worker 拉取任务的间隔（秒）
         enable_worker_loop: 是否启用 worker 自动循环拉取任务
+        paddleocr_vl_vllm_engine_enabled: 是否启用 PaddleOCR VL VLLM 引擎
+        paddleocr_vl_vllm_api_list: PaddleOCR VL VLLM API 列表
     """
+
+    def resolve_auto_accelerator():
+        """
+        当 accelerator 设置为 "auto" 时，使用元数据及环境信息自动检测最合适的加速器类型(不直接导入torch)
+
+        Returns:
+            str: 检测到的加速器类型 ("cuda" 或 "cpu")
+        """
+        try:
+            from importlib.metadata import distribution
+
+            distribution("torch")
+            torch_is_installed = True
+        except Exception as e:
+            torch_is_installed = False
+            logger.warning(f"Torch is not installed or cannot be imported: {e}")
+
+        if torch_is_installed and check_cuda_with_nvidia_smi() > 0:
+            return "cuda"
+        return "cpu"
+
     # 如果没有指定输出目录，从环境变量读取
     if output_dir is None:
         output_dir = os.getenv("OUTPUT_PATH", "/app/output")
@@ -1054,22 +1119,41 @@ def start_litserve_workers(
     logger.info("🚀 Starting MinerU Tianshu LitServe Worker Pool")
     logger.info("=" * 60)
     logger.info(f"📂 Output Directory: {output_dir}")
-    logger.info(f"🎮 Accelerator: {accelerator}")
     logger.info(f"💾 Devices: {devices}")
     logger.info(f"👷 Workers per Device: {workers_per_device}")
     logger.info(f"🔌 Port: {port}")
     logger.info(f"🔄 Worker Loop: {'Enabled' if enable_worker_loop else 'Disabled'}")
     if enable_worker_loop:
         logger.info(f"⏱️  Poll Interval: {poll_interval}s")
+    logger.info(f"🎮 Initial Accelerator setting: {accelerator}")
+
+    if paddleocr_vl_vllm_engine_enabled:
+        if not paddleocr_vl_vllm_api_list:
+            logger.error(
+                "请配置 --paddleocr-vl-vllm-api-list 参数，或移除 --paddleocr-vl-vllm-engine-enabled 以禁用 PaddleOCR VL VLLM 引擎"
+            )
+            sys.exit(1)
+        logger.success(f"PaddleOCR VL VLLM 引擎已启用，API 列表为: {paddleocr_vl_vllm_api_list}")
+    else:
+        os.environ.pop("PADDLEOCR_VL_VLLM_ENABLED", None)
+        logger.info("PaddleOCR VL VLLM 引擎已禁用")
+
     logger.info("=" * 60)
 
-    # 创建 LitServe 服务器
-    # 注意：LitAPI 不支持 __init__ 参数，需要通过类属性传递配置
-    MinerUWorkerAPI._output_dir = output_dir
-    MinerUWorkerAPI._poll_interval = poll_interval
-    MinerUWorkerAPI._enable_worker_loop = enable_worker_loop
+    # 1. 实例化 API 时传入数据
+    api = MinerUWorkerAPI(
+        output_dir=output_dir,
+        poll_interval=poll_interval,
+        enable_worker_loop=enable_worker_loop,
+        paddleocr_vl_vllm_engine_enabled=paddleocr_vl_vllm_engine_enabled,
+        paddleocr_vl_vllm_api_list=paddleocr_vl_vllm_api_list,  # ✅ 在这里传
+    )
 
-    api = MinerUWorkerAPI()
+    if accelerator == "auto":
+        # 手动解析accelerator的具体设置
+        accelerator = resolve_auto_accelerator()
+        logger.info(f"💫 Auto-resolved Accelerator: {accelerator}")
+
     server = ls.LitServer(
         api,
         accelerator=accelerator,
@@ -1119,12 +1203,12 @@ if __name__ == "__main__":
         default=None,
         help="Output directory for processed files (default: from OUTPUT_PATH env or /app/output)",
     )
-    parser.add_argument("--port", type=int, default=9000, help="Server port (default: 9000)")
+    parser.add_argument("--port", type=int, default=8001, help="Server port (default: 8001, or from WORKER_PORT env)")
     parser.add_argument(
         "--accelerator",
         type=str,
         default="auto",
-        choices=["auto", "cuda", "cpu", "mps"],
+        choices=["auto", "cuda", "cpu"],
         help="Accelerator type (default: auto)",
     )
     parser.add_argument("--workers-per-device", type=int, default=1, help="Number of workers per device (default: 1)")
@@ -1137,7 +1221,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable automatic worker loop (workers will wait for manual triggers)",
     )
-
+    parser.add_argument(
+        "--paddleocr-vl-vllm-engine-enabled",
+        action="store_true",
+        default=False,
+        help="是否启用 PaddleOCR VL VLLM 引擎 (默认: False)",
+    )
+    parser.add_argument(
+        "--paddleocr-vl-vllm-api-list",
+        type=parse_list_arg,
+        default=[],
+        help='PaddleOCR VL VLLM API 列表（Python list 字面量格式，如: \'["http://127.0.0.1:8000/v1", "http://127.0.0.1:8001/v1"]\'）',
+    )
     args = parser.parse_args()
 
     # ============================================================================
@@ -1187,16 +1282,16 @@ if __name__ == "__main__":
             except ValueError:
                 logger.warning(f"⚠️  Invalid WORKER_GPUS value: {env_workers}, using default: 1")
 
-    # 4. 如果没有通过命令行指定 port，尝试从环境变量 PORT 读取
+    # 4. 如果没有通过命令行指定 port，尝试从环境变量 WORKER_PORT 读取
     port = args.port
-    if args.port == 9000:  # 默认值
-        env_port = os.getenv("PORT")
-        if env_port:
-            try:
-                port = int(env_port)
-                logger.info(f"📊 Using port from PORT env: {port}")
-            except ValueError:
-                logger.warning(f"⚠️  Invalid PORT value: {env_port}, using default: 9000")
+    if args.port == 8001:  # 默认值
+        env_port = os.getenv("WORKER_PORT", "8001")
+        try:
+            port = int(env_port)
+            logger.info(f"📊 Using port from WORKER_PORT env: {port}")
+        except ValueError:
+            logger.warning(f"⚠️  Invalid WORKER_PORT value: {env_port}, using default: 8001")
+            port = 8001
 
     start_litserve_workers(
         output_dir=args.output_dir,
@@ -1206,4 +1301,6 @@ if __name__ == "__main__":
         port=port,
         poll_interval=args.poll_interval,
         enable_worker_loop=not args.disable_worker_loop,
+        paddleocr_vl_vllm_engine_enabled=args.paddleocr_vl_vllm_engine_enabled,
+        paddleocr_vl_vllm_api_list=args.paddleocr_vl_vllm_api_list,
     )

@@ -39,7 +39,7 @@ class TaskScheduler:
 
     def __init__(
         self,
-        litserve_url="http://localhost:9000/predict",
+        litserve_url="http://localhost:8001/predict",
         monitor_interval=300,
         health_check_interval=900,
         stale_task_timeout=60,
@@ -156,21 +156,18 @@ class TaskScheduler:
                     if cleanup_counter >= cleanup_interval_cycles:
                         cleanup_counter = 0
 
-                        # 清理旧结果文件（保留数据库记录）
+                        # 清理旧任务（删除文件和记录）
                         if self.cleanup_old_files_days > 0:
-                            logger.info(f"🧹 Cleaning up result files older than {self.cleanup_old_files_days} days...")
-                            file_count = self.db.cleanup_old_task_files(days=self.cleanup_old_files_days)
-                            if file_count > 0:
-                                logger.info(f"✅ Cleaned up {file_count} result directories (DB records kept)")
+                            logger.info(f"🧹 Cleaning up tasks older than {self.cleanup_old_files_days} days...")
+                            record_count = self.db.cleanup_old_task_records(days=self.cleanup_old_files_days)
+                            if record_count > 0:
+                                logger.info(f"✅ Cleaned up {record_count} old tasks (files and records)")
 
-                        # 清理极旧的数据库记录（可选，默认不启用）
+                        # 注：cleanup_old_records_days 已废弃，统一使用 cleanup_old_files_days
                         if self.cleanup_old_records_days > 0:
                             logger.warning(
-                                f"🗑️  Cleaning up database records older than {self.cleanup_old_records_days} days..."
+                                "⚠️  cleanup_old_records_days is deprecated, use cleanup_old_files_days instead"
                             )
-                            record_count = self.db.cleanup_old_task_records(days=self.cleanup_old_records_days)
-                            if record_count > 0:
-                                logger.warning(f"⚠️  Deleted {record_count} task records permanently")
 
                     # 等待下一次监控
                     await asyncio.sleep(self.monitor_interval)
@@ -219,7 +216,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="MinerU Tianshu Task Scheduler (Optional)")
-    parser.add_argument("--litserve-url", type=str, default="http://localhost:9000/predict", help="LitServe worker URL")
+    parser.add_argument("--litserve-url", type=str, default="http://localhost:8001/predict", help="LitServe worker URL")
     parser.add_argument(
         "--monitor-interval", type=int, default=300, help="Monitor interval in seconds (default: 300s = 5 minutes)"
     )
